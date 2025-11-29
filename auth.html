@@ -1,0 +1,167 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Vexu Rooms - Log In / Sign Up</title>
+    <!-- Tailwind CSS CDN for styling -->
+    <script src="https://cdn.tailwindcss.com"></script>
+    <!-- Supabase Client -->
+    <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+    <style>
+        /* Custom styles for the light green accent */
+        .vexu-green { background-color: #10b981; } /* emerald-500 */
+        .vexu-green-text { color: #10b981; }
+        .vexu-green-border { border-color: #10b981; }
+    </style>
+</head>
+<body class="bg-gray-900 min-h-screen text-gray-100 font-sans flex items-center justify-center p-4">
+
+    <!-- Auth Card Container -->
+    <div class="bg-gray-800 rounded-xl shadow-2xl w-full max-w-md p-8 border vexu-green-border border-2">
+
+        <!-- Initial content is the Login form. The script will render the correct mode. -->
+        <div id="auth-content">
+            <p class="text-center text-gray-400">Loading authentication interface...</p>
+        </div>
+
+    </div>
+
+    <!-- Custom Message Box for Success/Error -->
+    <div id="custom-message-box" class="fixed top-4 right-4 p-4 rounded-lg shadow-xl z-50 transition-opacity duration-300 opacity-0 hidden"></div>
+
+    <script>
+        // --- CONFIGURATION ---
+        const SUPABASE_URL = 'https://uvgnsbikukbxdujfkrpw.supabase.co'; 
+        const SUPABASE_ANON_KEY = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InV2Z25zYmlrdWtieGR1amZrcnB3Iiwicm9sZSI6ImFub24iLCJpYXQiOjE3NjM5MjA4MDYsImV4cCI6MjA3OTQ5NjgwNn0.Ss7BeFNi0I6WgAYOU1vqo2IQn1KeQf9jk56sTgAnkNc';
+        
+        // Initialize Supabase client
+        const { createClient } = supabase;
+        const supabaseClient = createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
+
+        // --- UI Elements ---
+        const authContent = document.getElementById('auth-content');
+
+        // --- MODAL AND UI HELPERS ---
+
+        function showMessageBox(title, message, isError = false) {
+            const msgBox = document.getElementById('custom-message-box');
+            msgBox.classList.remove('hidden');
+            msgBox.className = `fixed top-4 right-4 ${isError ? 'bg-red-700' : 'vexu-green'} text-white p-4 rounded-lg shadow-xl z-50 transition-opacity duration-300 opacity-100`;
+            msgBox.innerHTML = `<p class="font-bold">${title}</p><p class="text-sm">${message}</p>`;
+
+            setTimeout(() => {
+                msgBox.classList.remove('opacity-100');
+                msgBox.classList.add('opacity-0');
+            }, 5000);
+        }
+        
+        // --- AUTH LOGIC SCRIPTS ---
+
+        /**
+         * SCRIPT 1: Handles the Sign Up API request.
+         */
+        async function handleSignUpRequest(email, password) {
+            const { data, error } = await supabaseClient.auth.signUp({ 
+                email, 
+                password 
+            });
+
+            if (error) {
+                throw error;
+            }
+            return data;
+        }
+
+        /**
+         * SCRIPT 2: Handles the redirection/UI update after a successful Sign Up.
+         * Redirects the user's view to the login form and informs them about email confirmation.
+         */
+        function handlePostSignUpSuccess() {
+            showMessageBox('Success', 'Sign Up Successful! Please check your email to confirm your account before logging in.');
+            // Switch to the Login view
+            renderAuthForm(false); 
+        }
+
+        async function handleSignInRequest(email, password) {
+            const response = await supabaseClient.auth.signInWithPassword({ email, password });
+            if (response.error) throw response.error;
+            // Successful login -> Redirect to the main app
+            window.location.href = './index.html'; 
+        }
+
+        async function handleAuthSubmit(e) {
+            e.preventDefault();
+            const form = e.target;
+            const email = form.querySelector('#email').value;
+            const password = form.querySelector('#password').value;
+            const errorMessageDiv = document.getElementById('auth-error-message');
+            const mode = form.dataset.mode;
+            errorMessageDiv.textContent = ''; 
+
+            try {
+                if (mode === 'Sign Up') {
+                    // Script 1: Perform the Sign Up API call
+                    const data = await handleSignUpRequest(email, password);
+                    
+                    if (data.user) {
+                        // Script 2: Handle successful sign up (redirection to login view)
+                        handlePostSignUpSuccess(); 
+                    }
+                } else {
+                    // Log In logic
+                    await handleSignInRequest(email, password);
+                }
+            } catch (error) {
+                console.error('Auth Error:', error);
+                errorMessageDiv.textContent = error.message || 'An unknown error occurred during authentication.';
+            }
+        }
+
+
+        function renderAuthForm(isSignUpMode = false) {
+            const mode = isSignUpMode ? 'Sign Up' : 'Log In';
+            const switchText = isSignUpMode ? 'Already have an account? Log In' : 'Need an account? Sign Up';
+
+            const html = `
+                <div class="text-center mb-6">
+                    <h3 class="text-3xl font-bold vexu-green-text">${mode}</h3>
+                    <p class="text-gray-400 mt-1">${isSignUpMode ? 'Create your new chat account.' : 'Welcome back! Sign in to join the rooms.'}</p>
+                </div>
+
+                <div id="auth-error-message" class="text-red-400 mb-4 text-sm font-medium"></div>
+
+                <form id="auth-form" class="space-y-4" data-mode="${mode}">
+                    <div>
+                        <label for="email" class="block text-sm font-medium text-gray-300">Email Address</label>
+                        <input type="email" id="email" required class="mt-1 block w-full px-4 py-2 bg-gray-700 border border-gray-600 rounded-lg shadow-sm focus:ring-emerald-500 focus:border-emerald-500 text-gray-100" placeholder="you@vexu.com">
+                    </div>
+                    <div>
+                        <label for="password" class="block text-sm font-medium text-gray-300">Password</label>
+                        <input type="password" id="password" required minlength="6" class="mt-1 block w-full px-4 py-2 bg-gray-700 border border-gray-600 rounded-lg shadow-sm focus:ring-emerald-500 focus:border-emerald-500 text-gray-100" placeholder="min 6 characters">
+                    </div>
+                    <button type="submit" class="w-full vexu-green text-gray-900 font-bold py-3 rounded-lg hover:bg-emerald-600 transition duration-150 ease-in-out shadow-lg">${mode}</button>
+                </form>
+
+                <div id="switch-link" class="mt-6 text-center text-sm text-gray-400">
+                    <span class="font-semibold cursor-pointer hover:underline" onclick="renderAuthForm(!${isSignUpMode})">${switchText}</span>
+                </div>
+            `;
+            authContent.innerHTML = html;
+            document.getElementById('auth-form').addEventListener('submit', handleAuthSubmit);
+        }
+
+        // --- INITIALIZATION ---
+
+        // Check for session on load. If a session exists, redirect to the main app.
+        supabaseClient.auth.getSession().then(({ data: { session } }) => {
+            if (session) {
+                window.location.href = './index.html';
+            } else {
+                renderAuthForm(false); // Show login form by default
+            }
+        });
+
+    </script>
+</body>
+</html>
