@@ -1,0 +1,785 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Vexu Rooms - Unified Chat App</title>
+    <!-- Tailwind CSS CDN for styling -->
+    <script src="https://cdn.tailwindcss.com"></script>
+    <!-- Supabase Client -->
+    <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+    <style>
+        /* Custom styles for the light green accent */
+        .vexu-green { background-color: #10b981; } /* emerald-500 */
+        .vexu-green-text { color: #10b981; }
+        .vexu-green-border { border-color: #10b981; }
+        
+        /* Message container fixed height and scroll */
+        #messages-container {
+            height: 100%;
+            max-height: calc(100vh - 22rem); 
+            overflow-y: auto;
+            display: flex;
+            flex-direction: column-reverse; /* For bottom-up scrolling (newest messages visually at the bottom) */
+        }
+        
+        /* Room list scroll container */
+        #room-list {
+            max-height: 80vh;
+            overflow-y: auto;
+        }
+
+        /* Custom scrollbar for aesthetic, optional */
+        ::-webkit-scrollbar { width: 8px; }
+        ::-webkit-scrollbar-thumb { background: #10b981; border-radius: 4px; }
+        ::-webkit-scrollbar-track { background: #1f2937; }
+    </style>
+</head>
+<body class="bg-gray-900 min-h-screen text-gray-100 font-sans">
+
+    <!-- 1. HEADER / NAVIGATION BAR -->
+    <nav class="bg-gray-800 shadow-xl sticky top-0 z-20">
+        <div class="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
+            <div class="flex items-center justify-between h-16">
+                <!-- Logo/Branding -->
+                <div class="flex-shrink-0 flex items-center">
+                    <svg class="h-8 w-8 vexu-green-text" fill="none" viewBox="0 0 24 24" stroke="currentColor" aria-hidden="true">
+                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 15v2m-6-6h6l-3-6m12 6h-6l3-6M12 21a9 9 0 000-18 9 9 0 000 18z" />
+                    </svg>
+                    <span class="text-2xl font-extrabold ml-2">Vexu Rooms</span>
+                </div>
+
+                <!-- Account Button & Profile Status -->
+                <div id="auth-actions" class="flex items-center space-x-4">
+                    <!-- Content controlled by JS (Profile or Log In button) -->
+                </div>
+            </div>
+        </div>
+    </nav>
+
+    <!-- MAIN CONTENT AREA -->
+    <main class="max-w-7xl mx-auto py-6 sm:px-6 lg:px-8">
+        
+        <!-- 2. LOADING VIEW -->
+        <section id="loading-view" class="text-center py-20">
+            <h1 class="text-4xl font-bold vexu-green-text">Checking Authentication...</h1>
+            <p class="mt-4 text-lg text-gray-400">Loading application...</p>
+        </section>
+
+        <!-- 3. AUTHENTICATION VIEW (Hidden by default) -->
+        <section id="auth-view" class="hidden flex items-center justify-center py-20">
+            <div class="bg-gray-800 rounded-xl shadow-2xl w-full max-w-md p-8 border vexu-green-border border-2">
+
+                <div class="text-center mb-6">
+                    <h3 id="auth-title" class="text-3xl font-bold vexu-green-text">Log In</h3>
+                    <p id="auth-subtitle" class="text-gray-400 mt-1">Welcome back! Sign in to join the rooms.</p>
+                </div>
+
+                <div id="auth-error-message" class="text-red-400 mb-4 text-sm font-medium"></div>
+
+                <form id="auth-form" class="space-y-4" data-mode="Log In">
+                    <div>
+                        <label for="email" class="block text-sm font-medium text-gray-300">Email Address</label>
+                        <input type="email" id="email" required class="mt-1 block w-full px-4 py-2 bg-gray-700 border border-gray-600 rounded-lg shadow-sm focus:ring-emerald-500 focus:border-emerald-500 text-gray-100" placeholder="you@vexu.com">
+                    </div>
+                    <div>
+                        <label for="password" class="block text-sm font-medium text-gray-300">Password</label>
+                        <input type="password" id="password" required minlength="6" class="mt-1 block w-full px-4 py-2 bg-gray-700 border border-gray-600 rounded-lg shadow-sm focus:ring-emerald-500 focus:border-emerald-500 text-gray-100" placeholder="min 6 characters">
+                    </div>
+                    <button type="submit" id="auth-submit-btn" class="w-full vexu-green text-gray-900 font-bold py-3 rounded-lg hover:bg-emerald-600 transition duration-150 ease-in-out shadow-lg">Log In</button>
+                </form>
+
+                <div id="switch-link" class="mt-6 text-center text-sm text-gray-400">
+                    <span class="font-semibold cursor-pointer hover:underline" onclick="switchAuthMode()">Need an account? Sign Up</span>
+                </div>
+            </div>
+        </section>
+
+
+        <!-- 4. CHAT VIEW (Hidden by default, visible when logged IN) -->
+        <section id="chat-view" class="hidden">
+            <div class="grid grid-cols-1 md:grid-cols-4 gap-6 h-full">
+                
+                <!-- Room List Sidebar (Col 1) -->
+                <div class="md:col-span-1 bg-gray-800 rounded-xl p-4 shadow-2xl">
+                    <h2 class="text-xl font-bold vexu-green-text mb-4 border-b border-gray-700 pb-2">Rooms</h2>
+                    
+                    <!-- Create Room Button -->
+                    <button id="create-room-btn" class="w-full bg-emerald-700 hover:bg-emerald-600 text-white font-medium py-2 rounded-lg mb-4 transition duration-150">
+                        + New Room
+                    </button>
+
+                    <!-- Room List -->
+                    <div id="room-list" class="space-y-2">
+                        <p class="text-gray-500 text-sm">Loading rooms...</p>
+                    </div>
+                </div>
+
+                <!-- Chat Area (Cols 2-4) -->
+                <div class="md:col-span-3 flex flex-col bg-gray-800 rounded-xl p-6 shadow-2xl">
+                    
+                    <h2 id="room-title" class="text-2xl font-extrabold text-gray-200 mb-4 pb-2 border-b border-gray-700">Select a Room to Start Chatting</h2>
+                    
+                    <!-- Messages Container (The scrollable chat area) -->
+                    <div id="messages-container" class="flex-grow bg-gray-900 rounded-lg p-4 overflow-y-auto mb-4">
+                        <div id="messages-list" class="space-y-3">
+                            <p class="text-center text-gray-500 italic mt-8">No room selected. Choose a room on the left.</p>
+                        </div>
+                    </div>
+
+                    <!-- Message Input Form -->
+                    <form id="message-form" class="flex gap-4">
+                        <input type="text" id="message-input" placeholder="Type your message..." required disabled
+                               class="flex-grow px-4 py-3 bg-gray-700 border border-gray-600 rounded-lg shadow-sm focus:outline-none focus:ring-2 focus:ring-emerald-500 focus:border-emerald-500 text-gray-100 placeholder-gray-400 disabled:opacity-50">
+                        <button type="submit" id="send-btn" disabled
+                                class="vexu-green text-gray-900 font-bold py-3 px-6 rounded-lg hover:bg-emerald-600 transition duration-150 ease-in-out shadow-lg disabled:opacity-50">
+                            Send
+                        </button>
+                    </form>
+                </div>
+            </div>
+        </section>
+    </main>
+
+    <!-- 5. MODALS (PROFILE, CREATE ROOM) -->
+    <div id="global-modal" class="fixed inset-0 bg-black bg-opacity-75 z-50 flex items-center justify-center p-4 hidden" 
+         onclick="if(event.target.id === 'global-modal') closeModal()">
+        
+        <!-- Modal Content Container -->
+        <div id="modal-content-container" class="bg-gray-800 rounded-xl shadow-2xl w-full max-w-md p-6 border vexu-green-border border-2 transform scale-100 transition-all duration-300">
+            <!-- Content will be injected here -->
+        </div>
+    </div>
+    
+    <!-- Custom Message Box for Success/Error -->
+    <div id="custom-message-box" class="fixed top-4 right-4 p-4 rounded-lg shadow-xl z-50 transition-opacity duration-300 opacity-0 hidden"></div>
+
+
+    <!-- 6. JAVASCRIPT LOGIC (SUPABASE) -->
+    <script>
+        // --- CONFIGURATION ---
+        const SUPABASE_URL = 'https://uvgnsbikukbxdujfkrpw.supabase.co'; 
+        const SUPABASE_ANON_KEY = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InV2Z25zYmlrdWtieGR1amZrcnB3Iiwicm9sZSI6ImFub24iLCJpYXQiOjE3NjM5MjA4MDYsImV4cCI6MjA3OTQ5NjgwNn0.Ss7BeFNi0I6WgAYOU1vqo2IQn1KeQf9jk56sTgAnkNc';
+        
+        // Initialize Supabase client
+        const { createClient } = supabase;
+        const supabaseClient = createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
+
+        // --- GLOBAL STATE ---
+        let currentUserId = null;
+        let currentUsername = 'Guest';
+        let currentRoomId = null;
+        let activeChannel = null; // Supabase Realtime Channel
+        let roomsCache = [];
+        let profilesCache = {};
+
+        // --- UI Elements ---
+        const globalModal = document.getElementById('global-modal');
+        const modalContentContainer = document.getElementById('modal-content-container');
+        
+        // Auth View Elements
+        const loadingView = document.getElementById('loading-view');
+        const authView = document.getElementById('auth-view');
+        const authForm = document.getElementById('auth-form');
+        const authTitle = document.getElementById('auth-title');
+        const authSubtitle = document.getElementById('auth-subtitle');
+        const authSubmitBtn = document.getElementById('auth-submit-btn');
+        const authErrorMessageDiv = document.getElementById('auth-error-message');
+        const switchLink = document.getElementById('switch-link');
+        const authActionsEl = document.getElementById('auth-actions');
+
+        // Chat View Elements
+        const chatView = document.getElementById('chat-view');
+        const roomListEl = document.getElementById('room-list');
+        const roomTitleEl = document.getElementById('room-title');
+        const messagesListEl = document.getElementById('messages-list');
+        const messageForm = document.getElementById('message-form');
+        const messageInput = document.getElementById('message-input');
+        const sendBtn = document.getElementById('send-btn');
+        const createRoomBtn = document.getElementById('create-room-btn');
+
+
+        // --- MODAL AND UI HELPERS ---
+
+        function showMessageBox(title, message, isError = false) {
+            let msgBox = document.getElementById('custom-message-box');
+            msgBox.classList.remove('hidden', 'opacity-0');
+            msgBox.classList.add('opacity-100');
+            msgBox.className = `fixed top-4 right-4 ${isError ? 'bg-red-700' : 'vexu-green'} text-white p-4 rounded-lg shadow-xl z-50 transition-opacity duration-300`;
+            msgBox.innerHTML = `<p class="font-bold">${title}</p><p class="text-sm">${message}</p>`;
+
+            setTimeout(() => {
+                msgBox.classList.remove('opacity-100');
+                msgBox.classList.add('opacity-0');
+                setTimeout(() => msgBox.classList.add('hidden'), 300); // Hide after transition
+            }, 5000);
+        }
+        
+        function openModal(contentHtml) {
+            modalContentContainer.innerHTML = contentHtml;
+            globalModal.classList.remove('hidden');
+            document.body.classList.add('overflow-hidden');
+        }
+
+        function closeModal() {
+            globalModal.classList.add('hidden');
+            document.body.classList.remove('overflow-hidden');
+            modalContentContainer.innerHTML = '';
+        }
+
+        // --- AUTH LOGIC ---
+
+        function switchAuthMode() {
+            const currentMode = authForm.dataset.mode;
+            const isSignUpMode = currentMode === 'Sign Up';
+
+            authForm.dataset.mode = isSignUpMode ? 'Log In' : 'Sign Up';
+            authTitle.textContent = isSignUpMode ? 'Log In' : 'Sign Up';
+            authSubtitle.textContent = isSignUpMode ? 'Welcome back! Sign in to join the rooms.' : 'Create your new chat account.';
+            authSubmitBtn.textContent = isSignUpMode ? 'Log In' : 'Sign Up';
+            switchLink.innerHTML = isSignUpMode 
+                ? '<span class="font-semibold cursor-pointer hover:underline" onclick="switchAuthMode()">Need an account? Sign Up</span>'
+                : '<span class="font-semibold cursor-pointer hover:underline" onclick="switchAuthMode()">Already have an account? Log In</span>';
+            authErrorMessageDiv.textContent = '';
+        }
+
+        async function handleAuthSubmit(e) {
+            e.preventDefault();
+            const email = document.getElementById('email').value;
+            const password = document.getElementById('password').value;
+            const mode = authForm.dataset.mode;
+            authErrorMessageDiv.textContent = ''; 
+
+            try {
+                if (mode === 'Sign Up') {
+                    // Client-side signup: relies on error handling for existing users
+                    const { error } = await supabaseClient.auth.signUp({ email, password });
+                    
+                    if (error) {
+                         // Check for common error when user is already registered
+                        if (error.message.includes('already registered')) {
+                            authErrorMessageDiv.textContent = 'This email is already registered. Please log in.';
+                            return;
+                        }
+                        throw error;
+                    }
+                    
+                    // Supabase sends a confirmation email.
+                    showMessageBox('Success', 'Sign Up Successful! Please check your email to confirm your account before logging in.');
+                    switchAuthMode(); // Switch to login view
+                    
+                } else {
+                    const { error } = await supabaseClient.auth.signInWithPassword({ email, password });
+                    if (error) {
+                         // Improved error message for login failures
+                         if (error.message.includes('Invalid login credentials') || error.message.includes('Email not confirmed')) {
+                            throw new Error('Invalid email or password. If you just signed up, please ensure you confirmed your email address.');
+                         }
+                         throw error;
+                    }
+                    // On success, the onAuthStateChange listener will handle updating the UI
+                }
+            } catch (error) {
+                console.error('Auth Error:', error);
+                authErrorMessageDiv.textContent = error.message || 'An unknown error occurred during authentication.';
+            }
+        }
+
+        async function logout() {
+            const { error } = await supabaseClient.auth.signOut();
+            if (error) {
+                console.error('Logout Error:', error);
+                showMessageBox('Error', 'Logout failed!', true);
+            }
+            // The onAuthStateChange listener will detect the logout and trigger the view switch.
+        }
+
+        // --- PROFILE HANDLERS ---
+        
+        async function getOrCreateProfile(userId, userEmail) {
+            let { data: profile, error } = await supabaseClient
+                .from('profiles')
+                .select('username')
+                .eq('id', userId)
+                .single();
+
+            if (error && error.code !== 'PGRST116') { // PGRST116 is "No rows found"
+                console.error('Error checking profile:', error);
+                throw error;
+            }
+
+            if (profile) {
+                return profile.username;
+            } else {
+                // Profile doesn't exist, create it
+                const defaultUsername = userEmail.split('@')[0];
+                const { error: insertError } = await supabaseClient
+                    .from('profiles')
+                    .insert([{ id: userId, username: defaultUsername }]);
+
+                if (insertError) {
+                    console.error('Error creating profile:', insertError);
+                    throw insertError;
+                }
+                showMessageBox('Welcome!', `Your default username is set to: ${defaultUsername}. You can change it in your Profile.`);
+                return defaultUsername;
+            }
+        }
+
+        function renderProfileModal() {
+            const html = `
+                <div class="flex justify-between items-center mb-6">
+                    <h3 class="text-3xl font-bold vexu-green-text">Update Profile</h3>
+                    <button onclick="closeModal()" class="text-gray-400 hover:text-white transition duration-150">
+                        <svg class="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12"></path></svg>
+                    </button>
+                </div>
+                <div id="modal-error-message" class="text-red-400 mb-4 text-sm font-medium"></div>
+
+                <p class="text-sm text-gray-400 mb-4">Your User ID (for reference): <span class="break-all text-gray-300">${currentUserId}</span></p>
+
+                <form id="profile-form" class="space-y-4">
+                    <div>
+                        <label for="username" class="block text-sm font-medium text-gray-300">Username</label>
+                        <input type="text" id="username" required minlength="3" 
+                               value="${currentUsername}"
+                               class="mt-1 block w-full px-4 py-2 bg-gray-700 border border-gray-600 rounded-lg shadow-sm focus:ring-emerald-500 focus:border-emerald-500 text-gray-100" placeholder="Your unique name">
+                    </div>
+                    <button type="submit" class="w-full vexu-green text-gray-900 font-bold py-3 rounded-lg hover:bg-emerald-600 transition duration-150 ease-in-out shadow-lg">
+                        Update Username
+                    </button>
+                </form>
+            `;
+            openModal(html);
+            document.getElementById('profile-form').addEventListener('submit', handleProfileUpdate);
+        }
+
+        async function handleProfileUpdate(e) {
+            e.preventDefault();
+            const newUsername = document.getElementById('username').value.trim();
+            const errorMessageDiv = document.getElementById('modal-error-message');
+            errorMessageDiv.textContent = '';
+
+            if (newUsername.length < 3) {
+                errorMessageDiv.textContent = 'Username must be at least 3 characters.';
+                return;
+            }
+
+            try {
+                const { error } = await supabaseClient
+                    .from('profiles')
+                    .update({ username: newUsername, updated_at: new Date().toISOString() })
+                    .eq('id', currentUserId);
+
+                if (error) {
+                    if (error.code === '23505') { 
+                        errorMessageDiv.textContent = 'That username is already taken.';
+                    } else {
+                        throw error;
+                    }
+                } else {
+                    currentUsername = newUsername;
+                    // Update navigation bar display
+                    document.getElementById('current-username').textContent = newUsername; 
+                    profilesCache[currentUserId] = newUsername; // Update cache
+                    showMessageBox('Success', 'Username updated successfully!');
+                    closeModal();
+                }
+            } catch (error) {
+                console.error('Profile Update Error:', error);
+                errorMessageDiv.textContent = error.message || 'Failed to update profile.';
+            }
+        }
+
+        // --- ROOM HANDLERS ---
+
+        function renderCreateRoomModal() {
+            const html = `
+                <div class="flex justify-between items-center mb-6">
+                    <h3 class="text-3xl font-bold vexu-green-text">Create New Room</h3>
+                    <button onclick="closeModal()" class="text-gray-400 hover:text-white transition duration-150">
+                        <svg class="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12"></path></svg>
+                    </button>
+                </div>
+                <div id="modal-error-message" class="text-red-400 mb-4 text-sm font-medium"></div>
+
+                <form id="create-room-form" class="space-y-4">
+                    <div>
+                        <label for="room-name" class="block text-sm font-medium text-gray-300">Room Name</label>
+                        <input type="text" id="room-name" required minlength="3" 
+                               class="mt-1 block w-full px-4 py-2 bg-gray-700 border border-gray-600 rounded-lg shadow-sm focus:ring-emerald-500 focus:border-emerald-500 text-gray-100" placeholder="e.g., General Chat">
+                    </div>
+                    <button type="submit" class="w-full vexu-green text-gray-900 font-bold py-3 rounded-lg hover:bg-emerald-600 transition duration-150 ease-in-out shadow-lg">
+                        Create Room
+                    </button>
+                </form>
+            `;
+            openModal(html);
+            document.getElementById('create-room-form').addEventListener('submit', handleCreateRoom);
+        }
+
+        async function handleCreateRoom(e) {
+            e.preventDefault();
+            const roomName = document.getElementById('room-name').value.trim();
+            const errorMessageDiv = document.getElementById('modal-error-message');
+            errorMessageDiv.textContent = '';
+
+            try {
+                const { data: roomData, error: roomError } = await supabaseClient
+                    .from('rooms')
+                    .insert([{ name: roomName, created_by: currentUserId }])
+                    .select()
+                    .single();
+
+                if (roomError) throw roomError;
+
+                await joinRoom(roomData.id, roomData.name, true);
+
+                showMessageBox('Success', `Room "${roomName}" created and joined!`);
+                closeModal();
+            } catch (error) {
+                console.error('Create Room Error:', error);
+                errorMessageDiv.textContent = error.message || 'Failed to create room.';
+            }
+        }
+
+        async function fetchRooms() {
+            roomListEl.innerHTML = '<p class="text-gray-500 text-sm p-2">Loading rooms...</p>';
+            
+            const { data, error } = await supabaseClient
+                .from('rooms')
+                .select('id, name');
+
+            if (error) {
+                console.error('Error fetching rooms:', error);
+                roomListEl.innerHTML = `<p class="text-red-400 text-sm p-2">Error: ${error.message}</p>`;
+                return;
+            }
+
+            roomsCache = data;
+            renderRoomList();
+
+            if (currentRoomId) {
+                const room = roomsCache.find(r => r.id === currentRoomId);
+                if (room) {
+                    await joinRoom(room.id, room.name);
+                }
+            }
+        }
+
+        function renderRoomList() {
+            roomListEl.innerHTML = '';
+            if (roomsCache.length === 0) {
+                roomListEl.innerHTML = '<p class="text-gray-500 text-sm p-2">No rooms found. Create one!</p>';
+                return;
+            }
+
+            roomsCache.forEach(room => {
+                const isSelected = room.id === currentRoomId;
+                const roomItem = document.createElement('button');
+                roomItem.className = `w-full text-left p-3 rounded-lg font-medium transition duration-150 hover:bg-gray-700 focus:outline-none ${isSelected ? 'vexu-green text-gray-900 shadow-md' : 'bg-gray-700 text-gray-200'}`;
+                roomItem.textContent = room.name;
+                roomItem.onclick = () => joinRoom(room.id, room.name);
+                roomListEl.appendChild(roomItem);
+            });
+        }
+        
+        async function joinRoom(roomId, roomName, isNew = false) {
+            if (!currentUserId) {
+                showMessageBox('Error', 'Please log in to join a room.', true);
+                return;
+            }
+
+            try {
+                // 1. Check if the user is already a participant
+                const { data: participantData, error: selectError } = await supabaseClient
+                    .from('room_participants')
+                    .select('user_id')
+                    .eq('user_id', currentUserId)
+                    .eq('room_id', roomId)
+                    .limit(1); // Use limit(1) for efficiency
+
+                if (selectError && selectError.code !== 'PGRST116') { // PGRST116 means "No rows found"
+                    throw selectError;
+                }
+
+                // 2. If not found, insert the participant row
+                if (!participantData || participantData.length === 0) {
+                    const { error: insertError } = await supabaseClient
+                        .from('room_participants')
+                        .insert([{ user_id: currentUserId, room_id: roomId }]);
+
+                    if (insertError) {
+                        throw insertError;
+                    }
+                }
+                
+            } catch (error) {
+                console.error('Error joining room:', error);
+                showMessageBox('Error', `Failed to join room: ${error.message}. If you disabled RLS, ensure the rest of the database is working.`, true); 
+                return;
+            }
+            
+            currentRoomId = roomId;
+            roomTitleEl.textContent = roomName;
+            messageInput.disabled = false;
+            sendBtn.disabled = false;
+            messageInput.focus();
+
+            renderRoomList();
+
+            await fetchMessages(roomId);
+            setupRealtimeListener(roomId);
+        }
+        
+        // --- MESSAGING AND REAL-TIME ---
+
+        async function fetchMessages(roomId) {
+            messagesListEl.innerHTML = '<p class="text-center text-gray-500 italic mt-8">Loading messages...</p>';
+            
+            // Fetch messages ordered chronologically (ASC)
+            const { data, error } = await supabaseClient
+                .from('chat_messages')
+                .select(`
+                    id,
+                    user_id,
+                    message_text,
+                    timestamp,
+                    profiles (username)
+                `)
+                .eq('room_id', roomId)
+                .order('timestamp', { ascending: true }) 
+                .limit(50); 
+
+            if (error) {
+                console.error("Error fetching messages:", error);
+                messagesListEl.innerHTML = `<p class="text-center text-red-400 italic mt-8">Error loading messages: ${error.message}</p>`;
+                return;
+            }
+            
+            // --- FIX: Clear the loading message before rendering or displaying 'Start the conversation' ---
+            messagesListEl.innerHTML = '';
+
+            renderMessages(data); 
+        }
+
+        function renderMessages(messages) {
+            const messagesContainer = document.getElementById('messages-container');
+            // Check if the user is near the bottom before rendering new message
+            const isNearBottom = messagesContainer.scrollHeight - messagesContainer.scrollTop - messagesContainer.clientHeight < 50;
+            
+            if (messages.length === 0) {
+                // Use a unique class for the "Start the conversation" placeholder
+                messagesListEl.innerHTML = '<p class="text-center text-gray-500 italic mt-8 placeholder-text">Start the conversation!</p>';
+                return;
+            }
+            
+            // If the "Start the conversation" placeholder is present, remove it before appending the first real message
+            const placeholder = messagesListEl.querySelector('.placeholder-text');
+            if (placeholder) {
+                placeholder.remove();
+            }
+
+            messages.forEach(msg => {
+                const senderId = msg.user_id;
+                // Safely extract username from the joined object
+                const senderUsername = msg.profiles && msg.profiles.username ? msg.profiles.username : 'Unknown User';
+                const isMine = senderId === currentUserId;
+                const date = new Date(msg.timestamp);
+                const time = date.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+                
+                const messageDiv = document.createElement('div');
+                
+                messageDiv.className = `flex my-2 ${isMine ? 'justify-end' : 'justify-start'}`;
+                
+                messageDiv.innerHTML = `
+                    <div class="max-w-xs md:max-w-md lg:max-w-lg p-3 rounded-xl shadow-md ${isMine ? 'vexu-green text-gray-900 rounded-br-none' : 'bg-gray-700 text-gray-100 rounded-tl-none'}">
+                        <p class="text-xs font-semibold ${isMine ? 'text-gray-700' : 'text-emerald-400'} mb-1">${isMine ? 'You' : senderUsername}</p>
+                        <p class="break-words">${msg.message_text}</p>
+                        <span class="block text-right text-xs mt-1 ${isMine ? 'text-gray-700' : 'text-gray-400'}">${time}</span>
+                    </div>
+                `;
+                
+                // Append new messages.
+                messagesListEl.append(messageDiv);
+            });
+
+            // Auto-scroll to bottom only if the user was already near the bottom or it's a fresh load
+            const messagesContainerDiv = document.getElementById('messages-container');
+            if (isNearBottom || messagesListEl.children.length <= messages.length) {
+                messagesContainerDiv.scrollTop = messagesContainerDiv.scrollHeight;
+            }
+        }
+        
+        function setupRealtimeListener(roomId) {
+            if (activeChannel) {
+                supabaseClient.removeChannel(activeChannel);
+            }
+            
+            activeChannel = supabaseClient
+                .channel(`room:${roomId}`)
+                .on('postgres_changes', { 
+                    event: 'INSERT', 
+                    schema: 'public', 
+                    table: 'chat_messages',
+                    filter: `room_id=eq.${roomId}`
+                }, async (payload) => {
+                    // Only run if the message is from another user (to avoid duplicate rendering from local echo)
+                    if (payload.new.user_id !== currentUserId) {
+                        const { data: fullMessageData, error } = await supabaseClient
+                            .from('chat_messages')
+                            .select(`
+                                id,
+                                user_id,
+                                message_text,
+                                timestamp,
+                                profiles (username)
+                            `)
+                            .eq('id', payload.new.id)
+                            .single();
+
+                        if (error) {
+                            console.error('Error fetching new message details in Realtime:', error);
+                            // Show a temporary error message if RLS/fetch fails for real-time messages
+                            showMessageBox('Real-Time Error', 'Failed to fetch details for an incoming message. Check RLS policies on chat_messages and profiles.', true);
+                            return;
+                        }
+                        
+                        // Render the single new message using the same logic as the initial load
+                        renderMessages([fullMessageData]); 
+                    }
+                })
+                .subscribe();
+        }
+
+        messageForm.addEventListener('submit', async (e) => {
+            e.preventDefault();
+            const text = messageInput.value.trim();
+
+            if (!currentUserId || !currentRoomId || !text) {
+                // Handled by the disabled state on input/button, but good to check.
+                return;
+            }
+
+            try {
+                // Optimistic UI update: Assume success for the local user's message.
+                const { error, data } = await supabaseClient
+                    .from('chat_messages')
+                    .insert({
+                        user_id: currentUserId,
+                        room_id: currentRoomId,
+                        message_text: text
+                    })
+                    .select('id, user_id, message_text, timestamp')
+                    .single();
+
+                if (error) {
+                    throw error;
+                }
+                
+                // Manually construct the local message object for immediate rendering
+                const localMessage = {
+                    ...data,
+                    profiles: { username: currentUsername } 
+                };
+                renderMessages([localMessage]);
+                messageInput.value = ''; 
+                
+            } catch (error) {
+                console.error("Error sending message:", error);
+                showMessageBox("Error", `Failed to send message: ${error.message}. Check RLS Policy on chat_messages.`, true);
+            }
+        });
+
+        // --- AUTH STATE MANAGEMENT (CORE LOGIC CHANGE) ---
+
+        function renderAuthActions(isLoggedIn = false) {
+            authActionsEl.innerHTML = ''; // Clear previous buttons
+            
+            if (isLoggedIn) {
+                const profileHtml = `
+                    <div class="hidden sm:block text-sm text-gray-400">
+                        <span class="font-semibold text-gray-300">Profile:</span>
+                        <span id="current-username" class="italic text-emerald-400">${currentUsername}</span>
+                    </div>
+                    <button id="profile-btn"
+                            class="bg-gray-700 text-gray-100 hover:bg-gray-600 px-3 py-2 rounded-md text-sm font-medium transition duration-150 ease-in-out shadow-lg">
+                        Profile
+                    </button>
+                    <button id="logout-btn"
+                            class="bg-red-700 text-white hover:bg-red-600 px-3 py-2 rounded-md text-sm font-medium transition duration-150 ease-in-out shadow-lg">
+                        Logout
+                    </button>
+                `;
+                authActionsEl.innerHTML = profileHtml;
+                document.getElementById('profile-btn').onclick = renderProfileModal;
+                document.getElementById('logout-btn').onclick = logout;
+
+            } else {
+                 // We don't need a separate login button here since the main view is the login screen
+                 // But we keep it simple for now, relying on the auth view being visible.
+            }
+        }
+
+        async function updateUIForAuthState(session) {
+            loadingView.classList.add('hidden'); // Hide loading view
+
+            if (session) {
+                // --- LOGGED IN STATE ---
+                currentUserId = session.user.id;
+                
+                try {
+                    currentUsername = await getOrCreateProfile(currentUserId, session.user.email);
+                } catch (error) {
+                    showMessageBox('Auth Error', 'Could not create/fetch user profile. Logging out.', true);
+                    await supabaseClient.auth.signOut();
+                    return; // Re-runs this function with null session
+                }
+                
+                renderAuthActions(true);
+                authView.classList.add('hidden');
+                chatView.classList.remove('hidden');
+                
+                fetchRooms();
+                
+            } else {
+                // --- LOGGED OUT STATE ---
+                currentUserId = null;
+                currentUsername = 'Guest';
+                
+                // Reset/clear chat view
+                if (activeChannel) {
+                    supabaseClient.removeChannel(activeChannel);
+                    activeChannel = null;
+                }
+                currentRoomId = null;
+                messageInput.disabled = true;
+                sendBtn.disabled = true;
+                roomTitleEl.textContent = 'Select a Room to Start Chatting';
+                messagesListEl.innerHTML = '<p class="text-center text-gray-500 italic mt-8">No room selected. Choose a room on the left.</p>';
+                
+                // Show Auth View
+                renderAuthActions(false);
+                chatView.classList.add('hidden');
+                authView.classList.remove('flex', 'hidden'); // Show auth view
+                authView.classList.add('flex');
+            }
+        }
+
+        // --- INITIALIZATION ---
+        
+        createRoomBtn.onclick = renderCreateRoomModal;
+        authForm.addEventListener('submit', handleAuthSubmit);
+
+        // Listen for Supabase Auth state changes (critical for immediate view updates)
+        supabaseClient.auth.onAuthStateChange((event, session) => {
+            updateUIForAuthState(session);
+        });
+
+        // Initial check for existing session
+        supabaseClient.auth.getSession().then(({ data: { session } }) => {
+            updateUIForAuthState(session);
+        });
+    </script>
+</body>
+</html>
